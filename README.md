@@ -1,5 +1,27 @@
 <h1 style="font-size: 3em;">16662: Pixel Art, by team CopyPasta</h1>
 
+Updated instructions 16.03.25. Author: Sreeharsha
+
+1. **Clone the Repositories:**
+    ```bash
+    git clone https://github.com/sreeharshaparuchur1/pixel-art-franka.git
+    cd pixel-art-franka
+    ```
+2. **Save the current user id into a file:**
+    ```bash
+    echo -e "USER_UID=$(id -u $USER)\nUSER_GID=$(id -g $USER)" > .env
+    ```
+    It is needed to mount the folder from inside the Docker container.
+3. **Use the docker compose file and the dockerfile to build the image**
+image name: franka_ros2-pixel-art
+
+container name: pixel-art-franka
+
+4. **Enter the container**
+    ```bash
+    docker exec -it pixel-art-franka bash
+    ```
+
 
 # About
 The **franka_ros2** repository provides a **ROS 2** integration of **libfranka**, allowing efficient control of the Franka Robotics arm within the ROS 2 framework. This project is designed to facilitate robotic research and development by providing a robust interface for controlling the research versions of Franka Robotics robots.

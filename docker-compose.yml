@@ -1,12 +1,13 @@
 services:
-  franka_ros2:
+  pixel-art:
+    # image: pixel_art:v1
     build:
       context: .
       dockerfile: Dockerfile
       args:
         - USER_UID=${USER_UID}
         - USER_GID=${USER_GID}
-    container_name: franka_ros2
+    container_name: pixel-art-franka
     network_mode: "host"
     privileged: true
     command: /bin/bash
@@ -20,6 +21,8 @@ services:
     environment:
       QT_X11_NO_MITSHM: 1
       DISPLAY: $DISPLAY
+      USER_UID: ${USER_UID}  # Pass the host user's UID
+      USER_GID: ${USER_GID}
     cap_add:
       - SYS_NICE
     ulimits:
