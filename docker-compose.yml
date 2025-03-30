@@ -1,12 +1,12 @@
 services:
   pixel-art:
-    # image: pixel_art:v1
-    build:
-      context: .
-      dockerfile: Dockerfile
-      args:
-        - USER_UID=${USER_UID}
-        - USER_GID=${USER_GID}
+    image: pixel_art:v1
+    # build:
+    #   context: .
+    #   dockerfile: Dockerfile
+    #   args:
+    #     - USER_UID=${USER_UID}
+    #     - USER_GID=${USER_GID}
     container_name: pixel-art-franka
     network_mode: "host"
     privileged: true
