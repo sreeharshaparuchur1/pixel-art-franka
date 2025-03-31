@@ -1,25 +1,30 @@
+#!/usr/bin/env python3
+
 import numpy as np
 import networkx as nx
 import matplotlib.pyplot as plt
 from networkx.algorithms.approximation import christofides
 import rospy
-from std_msgs.msg import String
-
+from std_msgs.msg import String, Float32MultiArray
+from frankapy import FrankaArm
+from autolab_core import RigidTransform
+import pdb
 
 class SimpleColorPlanner:
-    def __init__(self, home_pose, pad_poses, pixel_goals):
+    def __init__(self, home_pose, pixel_goals):
         self.home = home_pose
-        self.pads = pad_poses
+        self.pads = {}
         self.pixel_goals = pixel_goals
         self.color_order = sort_colors(self.home, self.pads)
         self.current_color_idx = 0
 
-        rospy.init_node('simple_color_planner', anonymous=True)
-        rospy.Subscriber("pad_pose_array", Float32MultiArray, self.pad_pose_callback)
+        self.fa = FrankaArm()
+
+        rospy.Subscriber("/pad_pose_array", Float32MultiArray, self.pad_pose_callback)
 
     def pad_pose_callback(self, msg):
         #message containing the poses and colors of the pads.
-        
+
         data = msg.data
         colors = ['R', 'G', 'B', 'K']
         for i in range(4):
@@ -32,11 +37,13 @@ class SimpleColorPlanner:
     # FRANKAPY goto.coordinates
     def move_to_pad(self, color):
         pad_pose = self.pads[color]
-        approach_pose = pad_pose.copy()
+        approach_pose = np.array(pad_pose).copy()
         approach_pose[2, 3] += 0.05
 
+        approach_pose = RigidTransform(rotation=np.array([[1,0,0],[0,-1,0],[0,0,-1]]), translation=approach_pose[:-1,-1], from_frame='franka_tool', to_frame='world')
+
         self.fa.goto_pose(
-            approach_pose,
+            tool_pose=approach_pose,
             duration=5.0,
             use_impedance=False,
             cartesian_impedances=[2000, 2000, 1000, 100, 100, 100]
@@ -46,12 +53,14 @@ class SimpleColorPlanner:
 
     # FRANKAPY goto.coordinates
     def move_to_pixel(self, pixel):
-        approach_pose = pixel.copy()
-        approach_pose[2, 3] += 0.05  # 5 cm above the pixel
+        approach_pose = np.array(pixel).copy()
+        approach_pose[2] += 0.05  # 5 cm above the pixel
+
+        approach_pose = RigidTransform(rotation=np.array([[1,0,0],[0,-1,0],[0,0,-1]]), translation=approach_pose[:-1], from_frame='franka_tool', to_frame='world')
 
         # linearly move down 5cm
         self.fa.goto_pose(
-            approach_pose,
+            tool_pose=approach_pose,
             duration=5.0,
             use_impedance=False,
             cartesian_impedances=[2000, 2000, 1000, 100, 100, 100]
@@ -63,7 +72,7 @@ class SimpleColorPlanner:
     # FRANKAPY Force Control
     def stamp(self):
         current_pose = self.fa.get_pose()
-        initial_force = self.fa.get_robot_state().O_F_ext_hat_K
+        # initial_force = self.fa.get_robot_state()['O_F_ext_hat_K']
 
         try:
             # Enable force-sensitive compliance
@@ -76,11 +85,11 @@ class SimpleColorPlanner:
                 self.fa.goto_pose(current_pose, duration=0.5, dynamic=True) # check the alternative to duration as an argument
 
                 # Check force feedback
-                current_force = self.fa.get_robot_state().O_F_ext_hat_K
-                if abs(current_force[2]) >= 2.0:  # 2N force threshold
-                    print("Force threshold reached - maintaining pressure")
-                    self.fa.push_pose(duration=1.0)  # maintain pressure
-                    break
+                # current_force = self.fa.get_robot_state()['O_F_ext_hat_K']
+                # if abs(current_force[2]) >= 2.0:  # 2N force threshold
+                #     print("Force threshold reached - maintaining pressure")
+                #     self.fa.push_pose(duration=1.0)  # maintain pressure
+                #     break
 
                 total_depth += 0.001
 
@@ -123,7 +132,8 @@ class SimpleColorPlanner:
             self.stamp()
 
             color_pixels = [p for p in self.pixel_goals if p[3] == color]
-            pad_position = self.pads[color]
+            pad_position_matrix = self.pads[color]
+            pad_position = pad_position_matrix[:3,3]
             closest_pixel = min(color_pixels,
                                 key=lambda p: np.linalg.norm(np.array(pad_position) - np.array([p[0], p[1], p[2]])))
             ordered_pixels = self.travelling_salesman(closest_pixel[:3], color_pixels)
@@ -152,38 +162,33 @@ def get_stamp_pad_positions_from_aruco():
 # harsha Code
 def load_pixel_goals_from_image(image):
     # manually defined
-    return [
-        [0.48, -0.16, 0.03, 'R'],
-        [0.51, -0.15, 0.03, 'R'],
-        [0.49, -0.13, 0.03, 'R'],
-        [0.53, -0.17, 0.03, 'R'],
-        [0.50, -0.12, 0.03, 'R'],
-        [0.52, -0.14, 0.03, 'R'],
-        [0.47, -0.15, 0.03, 'R'],
-        [0.54, -0.13, 0.03, 'R'],
-        [0.49, -0.17, 0.03, 'R'],
-        [0.51, -0.11, 0.03, 'R'],
-        [0.53, -0.11, 0.03, 'R'],
-        [0.55, -0.15, 0.03, 'R'],
 
-        [0.60, -0.25, 0.03, 'G'],
-        [0.62, -0.24, 0.03, 'G'],
-        [0.58, -0.26, 0.03, 'G'],
-        [0.59, -0.23, 0.03, 'G'],
-        [0.61, -0.27, 0.03, 'G'],
-        [0.63, -0.25, 0.03, 'G'],
-        [0.60, -0.22, 0.03, 'G'],
-        [0.62, -0.23, 0.03, 'G'],
+    return [[0.436, -0.161, 0.03, 'R'],
+        [0.4614, -0.161, 0.03, 'R'],
+        [0.4868, -0.161, 0.03, 'R'],
+        [0.5122, -0.161, 0.03, 'R'],
+        [0.5376, -0.161, 0.03, 'R'],
+        [0.563, -0.161, 0.03, 'R'],
+        [0.5884, -0.161, 0.03, 'R'],
+        [0.6138, -0.161, 0.03, 'R'],
 
-        [0.50, -0.10, 0.03, 'B'],
-        [0.52, -0.09, 0.03, 'B'],
-        [0.48, -0.11, 0.03, 'B'],
-        [0.51, -0.08, 0.03, 'B'],
-        [0.49, -0.09, 0.03, 'B'],
-        [0.53, -0.10, 0.03, 'B'],
-        [0.47, -0.10, 0.03, 'B'],
-        [0.52, -0.07, 0.03, 'B']
-    ]
+        [0.436, -0.1356, 0.03, 'G'],
+        [0.4614, -0.1356, 0.03, 'G'],
+        [0.4868, -0.1356, 0.03, 'G'],
+        [0.5122, -0.1356, 0.03, 'G'],
+        [0.5376, -0.1356, 0.03, 'G'],
+        [0.563, -0.1356, 0.03, 'G'],
+        [0.5884, -0.1356, 0.03, 'G'],
+        [0.6138, -0.1356, 0.03, 'G'],
+
+        [0.436, -0.1102, 0.03, 'B'],
+        [0.4614, -0.1102, 0.03, 'B'],
+        [0.4868, -0.1102, 0.03, 'B'],
+        [0.5122, -0.1102, 0.03, 'B'],
+        [0.5376, -0.1102, 0.03, 'B'],
+        [0.563, -0.1102, 0.03, 'B'],
+        [0.5884, -0.1102, 0.03, 'B'],
+        [0.6138, -0.1102, 0.03, 'B']]
 
 
 def plot_pixel_path(pixel_list, pad_position=None, title="Pixel Path"):
@@ -223,9 +228,17 @@ def main():
                           [0, 1, 0, 0.0],
                           [0, 0, 1, 0.4],
                           [0, 0, 0, 1.0]])
-    pad_poses = get_stamp_pad_positions_from_aruco()
+    # pad_poses = get_stamp_pad_positions_from_aruco()
     pixel_goals = load_pixel_goals_from_image("pixel_art.png")
-    planner = SimpleColorPlanner(home_pose, pad_poses, pixel_goals)
+    planner = SimpleColorPlanner(home_pose, pixel_goals)
+
+    rospy.loginfo("Waiting for pad poses...")
+    while not rospy.is_shutdown() and len(planner.pads) < 4:
+        rospy.sleep(0.1)
+
+    rospy.loginfo("All pad poses received. Starting run...")
+
+
     planner.run()
 
 

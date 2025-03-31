@@ -1,4 +1,4 @@
-#!/usr/bin/env python
+#!/usr/bin/env python3
 
 import rospy
 import numpy as np
@@ -6,7 +6,7 @@ from std_msgs.msg import Float32MultiArray
 
 def to_homogeneous_matrix(x, y, z):
 
-    T = np.eye(4)
+    T = np.identity(4)
     T[0, 3] = x
     T[1, 3] = y
     T[2, 3] = z
@@ -17,10 +17,10 @@ def create_pad_pose_message():
 
     # Dummy positions for 4 color pads
     pad_positions = {
-        'R': [0.4, -0.2, 0.03],
-        'G': [0.6, -0.25, 0.03],
-        'B': [0.5, -0.1, 0.03],
-        'K': [0.45, -0.3, 0.03]
+        'R': [0.5, 0.2, 0.03],
+        'G': [0.5, 0.35, 0.03],
+        'B': [0.6, 0.35, 0.03],
+        'K': [0.6, 0.2, 0.03]
     }
 
     float_array = []
