@@ -8,6 +8,7 @@ import rospy
 from std_msgs.msg import String, Float32MultiArray
 from frankapy import FrankaArm
 from autolab_core import RigidTransform
+import time
 import pdb
 
 class SimpleColorPlanner:
@@ -31,7 +32,7 @@ class SimpleColorPlanner:
             pose_values = data[i * 16:(i + 1) * 16]
             pose_matrix = np.array(pose_values).reshape(4, 4)
             self.pads[colors[i]] = pose_matrix
-            print(f"Updated pad pose for color {colors[i]}: {pose_matrix}")
+            # print(f"Updated pad pose for color {colors[i]}: {pose_matrix}")
 
 
     # FRANKAPY goto.coordinates
@@ -53,10 +54,10 @@ class SimpleColorPlanner:
 
     # FRANKAPY goto.coordinates
     def move_to_pixel(self, pixel):
-        approach_pose = np.array(pixel).copy()
+        approach_pose = np.array(pixel[:-1], dtype=float).copy()
         approach_pose[2] += 0.05  # 5 cm above the pixel
 
-        approach_pose = RigidTransform(rotation=np.array([[1,0,0],[0,-1,0],[0,0,-1]]), translation=approach_pose[:-1], from_frame='franka_tool', to_frame='world')
+        approach_pose = RigidTransform(rotation=np.array([[1,0,0],[0,-1,0],[0,0,-1]]), translation=np.array(approach_pose), from_frame='franka_tool', to_frame='world')
 
         # linearly move down 5cm
         self.fa.goto_pose(
@@ -72,35 +73,83 @@ class SimpleColorPlanner:
     # FRANKAPY Force Control
     def stamp(self):
         current_pose = self.fa.get_pose()
-        # initial_force = self.fa.get_robot_state()['O_F_ext_hat_K']
+        initial_state = self.fa.get_robot_state()
+        print(initial_state)
+        initial_force = initial_state['ee_force_torque']
+
 
         try:
             # Enable force-sensitive compliance
-            self.fa.set_cartesian_impedance([2000, 2000, 500, 50, 50, 50])
+            # self.fa.set_cartesian_impedance([2000, 2000, 500, 50, 50, 50])
+
+            print("Starting stamping motion...")
 
             total_depth = 0
-            while total_depth < 0.05:  # 5cm descent
+            # while total_depth < 0.05:  # 5cm descent
                 
-                current_pose[2, 3] -= 0.001  # 1 mm steps
-                self.fa.goto_pose(current_pose, duration=0.5, dynamic=True) # check the alternative to duration as an argument
+            # current_pose[2, 3] -= 0.001  # 1 mm steps
+            new_pose = current_pose.copy()
+            new_pose.translation[2] -= 0.18
+            self.fa.goto_pose(new_pose, duration=0.5, dynamic=True) # check the alternative to duration as an argument
 
-                # Check force feedback
-                # current_force = self.fa.get_robot_state()['O_F_ext_hat_K']
-                # if abs(current_force[2]) >= 2.0:  # 2N force threshold
-                #     print("Force threshold reached - maintaining pressure")
-                #     self.fa.push_pose(duration=1.0)  # maintain pressure
-                #     break
+            # Check force feedback
+            # current_force = self.fa.get_robot_state()['ee_force_torque']
+            # if abs(current_force[2]) >= 2.0:  # 2N force threshold
+            #     print("Force threshold reached - maintaining pressure")
+            #     self.fa.push_pose(duration=1.0)  # maintain pressure
+                # break
 
-                total_depth += 0.001
+                # total_depth += 0.001
+
+            print("Stamp applied. Retracting...")
 
             # Retract after stamp
-            current_pose[2, 3] += 0.05  # 2 cm retract
-            self.fa.goto_pose(current_pose, duration=1.0)
+            # current_pose[2, 3] += 0.05  # 2 cm retract
+            retract_pose = current_pose.copy()
+            retract_pose.translation[2] += 0.1
+            self.fa.goto_pose(retract_pose, duration=1.0)
+
+            print("Stamping completed.")
 
         except Exception as e:
             print(f"Stamping interrupted: {str(e)}")
             self.fa.stop_skill()
 
+    # def stamp(self):
+    #     current_pose = self.fa.get_pose()  # RigidTransform object
+
+    #     try:
+    #         print("Starting stamping motion...")
+
+    #         # total_depth = 0
+    #         # while total_depth < 0.05:  # 5 cm descent
+    #             # Copy the current pose and move it downward
+    #         new_pose = current_pose.copy()
+    #         new_pose.translation[2] -= 0.15  # Move down 1 cm
+    #         print(new_pose)
+
+    #         self.fa.goto_pose(new_pose, duration=10.0, use_impedance=False, cartesian_impedances=[3000,3000,100,300,300,300])
+    #         # self.wait_until_skill_done()
+
+    #         current_pose = new_pose  # update current pose reference
+    #             # total_depth += 0.01
+
+    #         print("Stamp applied. Retracting...")
+
+    #         # Retract after stamp
+    #         retract_pose = current_pose.copy()
+    #         retract_pose.translation[2] += 0.05  # Retract 5 cm
+    #         self.fa.goto_pose(retract_pose, duration=10.0, use_impedance=False, cartesian_impedances=[3000,3000,100,300,300,300])
+    #         # self.wait_until_skill_done()
+
+    #         print("Stamping completed.")
+
+    #     except Exception as e:
+    #         print(f"Stamping interrupted: {e}")
+
+    def wait_until_skill_done(self):
+        while not self.fa.is_skill_done():
+            time.sleep(0.1)
 
     def done(self):
         print("All pixels stamped.")
@@ -141,6 +190,7 @@ class SimpleColorPlanner:
             for pixel in ordered_pixels:
                 self.move_to_pixel(pixel)
                 self.stamp()
+            print(pad_position)
             plot_pixel_path(ordered_pixels, pad_position=pad_position, title=f"TSP Path for {color} pixels")
         self.done()
 
@@ -195,6 +245,8 @@ def plot_pixel_path(pixel_list, pad_position=None, title="Pixel Path"):
     if not pixel_list:
         print("Empty pixel list.")
         return
+    
+    print("Plotting pixel path.....")
 
     xs = [p[0] for p in pixel_list]
     ys = [p[1] for p in pixel_list]
@@ -208,7 +260,7 @@ def plot_pixel_path(pixel_list, pad_position=None, title="Pixel Path"):
         plt.plot(x, y, 'o', color='red', markersize=6)
         plt.text(x + 0.002, y + 0.002, c, fontsize=8)
 
-    if pad_position:
+    if pad_position is not None:
         px, py, _ = pad_position
         plt.plot(px, py, 's', color='blue', markersize=10, label="Stamp Pad")
         plt.text(px + 0.002, py + 0.002, 'Pad', fontsize=9, color='blue')
@@ -220,7 +272,11 @@ def plot_pixel_path(pixel_list, pad_position=None, title="Pixel Path"):
     plt.grid(True)
     plt.legend()
     plt.tight_layout()
-    plt.show()
+    # plt.show()
+
+    plt.savefig("pixel_path_plot.png", dpi=300)
+    plt.close()
+    print("Plot saved as 'pixel_path_plot.png'")
 
 
 def main():
