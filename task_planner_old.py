@@ -11,12 +11,6 @@ from autolab_core import RigidTransform
 import time
 import pdb
 
-## The first test is to go to the predefined POSE
-# from there give the joint angle waypoint
-# back to a pose
-# go to another "ready" pose
-# give the new joint angle waypoint
-
 class SimpleColorPlanner:
     def __init__(self, home_pose, pixel_goals):
         self.home = home_pose
@@ -30,8 +24,7 @@ class SimpleColorPlanner:
         rospy.Subscriber("/pad_pose_array", Float32MultiArray, self.pad_pose_callback)
 
     def pad_pose_callback(self, msg):
-
-        # message containing the poses and colors of the pads.
+        #message containing the poses and colors of the pads.
 
         data = msg.data
         colors = ['R', 'G', 'B', 'K']
@@ -53,11 +46,11 @@ class SimpleColorPlanner:
         self.fa.goto_pose(
             tool_pose=approach_pose,
             duration=5.0,
-            use_impedance=False, # Setting to True jitters
+            use_impedance=False,
             cartesian_impedances=[2000, 2000, 1000, 100, 100, 100]
         )
 
-        self.stamp(pad=True)
+        self.stamp()
 
     # FRANKAPY goto.coordinates
     def move_to_pixel(self, pixel):
@@ -75,45 +68,88 @@ class SimpleColorPlanner:
         )
 
         # Stamp the pixel
-        self.stamp(pad=False)
+        self.stamp()
 
     # FRANKAPY Force Control
-    def stamp(self, pad=True):
-        current_pose = self.fa.get_pose()  # RigidTransform object
+    def stamp(self):
+        current_pose = self.fa.get_pose()
+        initial_state = self.fa.get_robot_state()
+        print(initial_state)
+        initial_force = initial_state['ee_force_torque']
+
 
         try:
+            # Enable force-sensitive compliance
+            # self.fa.set_cartesian_impedance([2000, 2000, 500, 50, 50, 50])
+
             print("Starting stamping motion...")
 
-            desired_pose = current_pose.copy()
-            desired_pose.translation -= np.array([0.0, 0.0, 0.05]) # Move down 5 cm
-            print(desired_pose)
+            total_depth = 0
+            # while total_depth < 0.05:  # 5cm descent
+                
+            # current_pose[2, 3] -= 0.001  # 1 mm steps
+            new_pose = current_pose.copy()
+            new_pose.translation[2] -= 0.18
+            self.fa.goto_pose(new_pose, duration=0.5, dynamic=True) # check the alternative to duration as an argument
 
-            self.fa.goto_pose(
-            tool_pose=desired_pose,
-            duration=5.0,
-            use_impedance=True,
-            cartesian_impedances=[2000, 2000, 1000, 100, 100, 100]
-            )
+            # Check force feedback
+            # current_force = self.fa.get_robot_state()['ee_force_torque']
+            # if abs(current_force[2]) >= 2.0:  # 2N force threshold
+            #     print("Force threshold reached - maintaining pressure")
+            #     self.fa.push_pose(duration=1.0)  # maintain pressure
+                # break
 
-            current_pose = self.fa.get_pose()  # update current pose reference
+                # total_depth += 0.001
 
             print("Stamp applied. Retracting...")
 
             # Retract after stamp
+            # current_pose[2, 3] += 0.05  # 2 cm retract
             retract_pose = current_pose.copy()
-            retract_pose.translation += np.array([0.0, 0.0, 0.05]) # Retract 5 cm
-
-            self.fa.goto_pose(
-            tool_pose=retract_pose,
-            duration=5.0,
-            use_impedance=True,
-            cartesian_impedances=[2000, 2000, 1000, 100, 100, 100]
-            )
+            retract_pose.translation[2] += 0.1
+            self.fa.goto_pose(retract_pose, duration=1.0)
 
             print("Stamping completed.")
 
         except Exception as e:
-            print(f"Stamping interrupted: {e}")
+            print(f"Stamping interrupted: {str(e)}")
+            self.fa.stop_skill()
+
+    # def stamp(self):
+    #     current_pose = self.fa.get_pose()  # RigidTransform object
+
+    #     try:
+    #         print("Starting stamping motion...")
+
+    #         # total_depth = 0
+    #         # while total_depth < 0.05:  # 5 cm descent
+    #             # Copy the current pose and move it downward
+    #         new_pose = current_pose.copy()
+    #         new_pose.translation[2] -= 0.15  # Move down 1 cm
+    #         print(new_pose)
+
+    #         self.fa.goto_pose(new_pose, duration=10.0, use_impedance=False, cartesian_impedances=[3000,3000,100,300,300,300])
+    #         # self.wait_until_skill_done()
+
+    #         current_pose = new_pose  # update current pose reference
+    #             # total_depth += 0.01
+
+    #         print("Stamp applied. Retracting...")
+
+    #         # Retract after stamp
+    #         retract_pose = current_pose.copy()
+    #         retract_pose.translation[2] += 0.05  # Retract 5 cm
+    #         self.fa.goto_pose(retract_pose, duration=10.0, use_impedance=False, cartesian_impedances=[3000,3000,100,300,300,300])
+    #         # self.wait_until_skill_done()
+
+    #         print("Stamping completed.")
+
+    #     except Exception as e:
+    #         print(f"Stamping interrupted: {e}")
+
+    def wait_until_skill_done(self):
+        while not self.fa.is_skill_done():
+            time.sleep(0.1)
 
     def done(self):
         print("All pixels stamped.")
@@ -142,6 +178,7 @@ class SimpleColorPlanner:
         for color in self.color_order:
             # Dab the Stamp
             self.move_to_pad(color)
+            self.stamp()
 
             color_pixels = [p for p in self.pixel_goals if p[3] == color]
             pad_position_matrix = self.pads[color]
@@ -152,6 +189,7 @@ class SimpleColorPlanner:
 
             for pixel in ordered_pixels:
                 self.move_to_pixel(pixel)
+                self.stamp()
             print(pad_position)
             plot_pixel_path(ordered_pixels, pad_position=pad_position, title=f"TSP Path for {color} pixels")
         self.done()
@@ -171,7 +209,7 @@ def get_stamp_pad_positions_from_aruco():
     }
 
 
-# Harsha Code
+# harsha Code
 def load_pixel_goals_from_image(image):
     # manually defined
 
@@ -234,6 +272,7 @@ def plot_pixel_path(pixel_list, pad_position=None, title="Pixel Path"):
     plt.grid(True)
     plt.legend()
     plt.tight_layout()
+    # plt.show()
 
     plt.savefig("pixel_path_plot.png", dpi=300)
     plt.close()
@@ -254,6 +293,7 @@ def main():
         rospy.sleep(0.1)
 
     rospy.loginfo("All pad poses received. Starting run...")
+
 
     planner.run()
 
