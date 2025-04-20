@@ -8,7 +8,7 @@ import rospy
 from std_msgs.msg import String, Float32MultiArray
 from frankapy import FrankaArm
 from autolab_core import RigidTransform
-import time
+from time import time, sleep
 import pdb
 
 ## The first test is to go to the predefined POSE
@@ -62,7 +62,7 @@ class SimpleColorPlanner:
     def move_to_pad(self, color):
         pad_pose = self.pads[color]
         approach_pose = np.array(pad_pose).copy()
-        approach_pose[2, 3] += 0.05
+        approach_pose[2, 3] += 0.02
 
         approach_pose = RigidTransform(
             rotation=np.array([[1, 0, 0], [0, -1, 0], [0, 0, -1]]),
@@ -73,7 +73,7 @@ class SimpleColorPlanner:
 
         self.fa.goto_pose(
             tool_pose=approach_pose,
-            duration=5.0,
+            duration=10.0,
             use_impedance=False,  # Setting to True jitters
             cartesian_impedances=[2000, 2000, 1000, 100, 100, 100],
         )
@@ -82,6 +82,10 @@ class SimpleColorPlanner:
 
     # FRANKAPY goto.coordinates
     def move_to_stamp(self, color):
+        print(f"Moving to stamp color {color}")
+        # self.fa.goto_gripper(0.08)
+        self.fa.open_gripper()
+
         stamp_pose = self.stamps[color]
         approach_pose = np.array(stamp_pose).copy()
         approach_pose[2, 3] += 0.01
@@ -95,12 +99,20 @@ class SimpleColorPlanner:
 
         self.fa.goto_pose(
             tool_pose=approach_pose,
-            duration=5.0,
-            use_impedance=False,  
+            duration=10.0,
+            use_impedance=False,
             cartesian_impedances=[2000, 2000, 1000, 100, 100, 100],
         )
 
-        self.fa.goto_gripper(0.01) # close gripper to hold the stamp
+        self.fa.goto_gripper(0.01)  # close gripper to hold the stamp
+
+        # final_pose = self.fa.get_pose()
+        # if np.linalg.norm(final_pose.translation - approach_pose.translation) < 0.005:
+        #     self.fa.goto_gripper(0.01)
+        # else:
+        #     rospy.logwarn("Robot hasn't reached the pose yet. Waiting...")
+        #     rospy.sleep(1.0)
+        #     self.fa.goto_gripper(0.01)
 
         # Retract after picking up stamp
         retract_pose = np.array(stamp_pose).copy()
@@ -120,11 +132,69 @@ class SimpleColorPlanner:
             cartesian_impedances=[2000, 2000, 1000, 100, 100, 100],
         )
 
+    def return_to_stamp(self, color):
+        print(f"Returning stamp for color {color}")
+
+        stamp_pose = self.stamps[color]
+        approach_pose = np.array(stamp_pose).copy()
+        approach_pose[2, 3] += 0.08
+
+        approach_pose = RigidTransform(
+            rotation=np.array([[1, 0, 0], [0, -1, 0], [0, 0, -1]]),
+            translation=approach_pose[:-1, -1],
+            from_frame="franka_tool",
+            to_frame="world",
+        )
+
+        self.fa.goto_pose(
+            tool_pose=approach_pose,
+            duration=10.0,
+            use_impedance=False,
+            cartesian_impedances=[2000, 2000, 1000, 100, 100, 100],
+        )
+
+        # Place stamp
+        place_pose = np.array(stamp_pose).copy()
+        place_pose[2, 3] += 0.01  # Go down to 1 cm
+
+        place_pose = RigidTransform(
+            rotation=np.array([[1, 0, 0], [0, -1, 0], [0, 0, -1]]),
+            translation=place_pose[:-1, -1],
+            from_frame="franka_tool",
+            to_frame="world",
+        )
+
+        self.fa.goto_pose(
+            tool_pose=place_pose,
+            duration=5.0,
+            use_impedance=True,
+            cartesian_impedances=[2000, 2000, 1000, 100, 100, 100],
+        )
+
+        # self.fa.goto_gripper(0.08, speed=0.1)
+        self.fa.open_gripper()
+        # print("Opening gripper at stamp home position")
+        for _ in range(50):
+            if self.fa.get_gripper_width() > 0.07:
+                break
+            sleep(0.05)
+        else:
+            print("Gripper didnt open fully!")
+
+        # Retract after placing the stamp
+        # self.fa.goto_pose(
+        #     tool_pose=approach_pose,
+        #     duration=5.0,
+        #     use_impedance=True,
+        #     cartesian_impedances=[2000, 2000, 1000, 100, 100, 100],
+        # )
+
+        self.fa.open_gripper()
 
     # FRANKAPY goto.coordinates
     def move_to_pixel(self, pixel):
         approach_pose = np.array(pixel[:-1], dtype=float).copy()
-        approach_pose[2] += 0.05  # 5 cm above the pixel
+        approach_pose[2] += 0.02  # 2 cm above the pixel
 
         approach_pose = RigidTransform(
             rotation=np.array([[1, 0, 0], [0, -1, 0], [0, 0, -1]]),
@@ -133,7 +203,6 @@ class SimpleColorPlanner:
             to_frame="world",
         )
 
-        # linearly move down 5cm
         self.fa.goto_pose(
             tool_pose=approach_pose,
             duration=5.0,
@@ -144,7 +213,6 @@ class SimpleColorPlanner:
         # Stamp the pixel
         self.stamp(pad=False)
 
-    # FRANKAPY Force Control
     def stamp(self, pad=True):
         current_pose = self.fa.get_pose()  # RigidTransform object
 
@@ -153,7 +221,7 @@ class SimpleColorPlanner:
 
             desired_pose = current_pose.copy()
             desired_pose.translation -= np.array([0.0, 0.0, 0.05])  # Move down 5 cm
-            print(desired_pose)
+            # print(desired_pose)
 
             self.fa.goto_pose(
                 tool_pose=desired_pose,
@@ -209,13 +277,16 @@ class SimpleColorPlanner:
 
     def run(self):
         for color in self.color_order:
+            color_pixels = [p for p in self.pixel_goals if p[3] == color]
+            if len(color_pixels) == 0:
+                print(f"There's no colour {color} in the image!")
+                continue
             # Pick up the stamp
             self.move_to_stamp(color)
 
             # Dab the stamp
             self.move_to_pad(color)
 
-            color_pixels = [p for p in self.pixel_goals if p[3] == color]
             pad_position_matrix = self.pads[color]
             pad_position = pad_position_matrix[:3, 3]
             closest_pixel = min(
@@ -226,20 +297,34 @@ class SimpleColorPlanner:
             )
             ordered_pixels = self.travelling_salesman(closest_pixel[:3], color_pixels)
 
+            stamp_counter = 0
+
             for pixel in ordered_pixels:
                 self.move_to_pixel(pixel)
+
+                stamp_counter += 1
+
+                if stamp_counter % 3 == 0 and stamp_counter != len(ordered_pixels):
+                    print(f"Re-dabbing stamp for {color} after {stamp_counter} pixels.")
+                    self.move_to_pad(color)
+
             print(pad_position)
+
+            self.return_to_stamp(color)  # Return the stamp after finishing color
+            self.fa.open_gripper()
+
             plot_pixel_path(
                 ordered_pixels,
                 pad_position=pad_position,
                 title=f"TSP Path for {color} pixels",
             )
+
         self.done()
 
 
 # implement home distance logic
 def sort_colors(home_pose, pad_poses):
-    return ["R", "B", "G"]
+    return ["R", "B", "G", "K"]
 
 
 # Bhaswanth Code
@@ -251,31 +336,82 @@ def get_stamp_pad_positions_from_aruco():
 def load_pixel_goals_from_image(image):
     # manually defined
 
+    # return [
+    #     [0.436, -0.161, 0.03, 'B'], [0.436, -0.1356, 0.03, 'G'], [0.436, -0.1102, 0.03, 'G'], [0.436, -0.0848, 0.03, 'B'],
+    #     [0.436, -0.0594, 0.03, 'G'], [0.436, -0.034, 0.03, 'G'], [0.436, -0.0086, 0.03, 'B'], [0.436, 0.0168, 0.03, 'G'],
+    #     [0.4614, -0.161, 0.03, 'G'], [0.4614, -0.1356, 0.03, 'K'], [0.4614, -0.1102, 0.03, 'K'], [0.4614, -0.0848, 0.03, 'B'],
+    #     [0.4614, -0.0594, 0.03, 'G'], [0.4614, -0.034, 0.03, 'K'], [0.4614, -0.0086, 0.03, 'K'], [0.4614, 0.0168, 0.03, 'G'],
+    #     [0.4868, -0.161, 0.03, 'G'], [0.4868, -0.1356, 0.03, 'K'], [0.4868, -0.1102, 0.03, 'K'], [0.4868, -0.0848, 0.03, 'G'],
+    #     [0.4868, -0.0594, 0.03, 'G'], [0.4868, -0.034, 0.03, 'K'], [0.4868, -0.0086, 0.03, 'K'], [0.4868, 0.0168, 0.03, 'G'],
+    #     [0.5122, -0.161, 0.03, 'B'], [0.5122, -0.1356, 0.03, 'G'], [0.5122, -0.1102, 0.03, 'G'], [0.5122, -0.0848, 0.03, 'K'],
+    #     [0.5122, -0.0594, 0.03, 'K'], [0.5122, -0.034, 0.03, 'G'], [0.5122, -0.0086, 0.03, 'G'], [0.5122, 0.0168, 0.03, 'B'],
+    #     [0.5376, -0.161, 0.03, 'G'], [0.5376, -0.1356, 0.03, 'G'], [0.5376, -0.1102, 0.03, 'K'], [0.5376, -0.0848, 0.03, 'K'],
+    #     [0.5376, -0.0594, 0.03, 'K'], [0.5376, -0.034, 0.03, 'K'], [0.5376, -0.0086, 0.03, 'G'], [0.5376, 0.0168, 0.03, 'G'],
+    #     [0.563, -0.161, 0.03, 'B'], [0.563, -0.1356, 0.03, 'G'], [0.563, -0.1102, 0.03, 'K'], [0.563, -0.0848, 0.03, 'K'],
+    #     [0.563, -0.0594, 0.03, 'K'], [0.563, -0.034, 0.03, 'K'], [0.563, -0.0086, 0.03, 'G'], [0.563, 0.0168, 0.03, 'G'],
+    #     [0.5884, -0.161, 0.03, 'G'], [0.5884, -0.1356, 0.03, 'G'], [0.5884, -0.1102, 0.03, 'K'], [0.5884, -0.0848, 0.03, 'G'],
+    #     [0.5884, -0.0594, 0.03, 'G'], [0.5884, -0.034, 0.03, 'K'], [0.5884, -0.0086, 0.03, 'B'], [0.5884, 0.0168, 0.03, 'G'],
+    #     [0.6138, -0.161, 0.03, 'G'], [0.6138, -0.1356, 0.03, 'G'], [0.6138, -0.1102, 0.03, 'B'], [0.6138, -0.0848, 0.03, 'G'],
+    #     [0.6138, -0.0594, 0.03, 'B'], [0.6138, -0.034, 0.03, 'G'], [0.6138, -0.0086, 0.03, 'G'], [0.6138, 0.0168, 0.03, 'G']
+    # ]
+
     return [
-        [0.436, -0.161, 0.03, "R"],
-        [0.4614, -0.161, 0.03, "R"],
-        [0.4868, -0.161, 0.03, "R"],
-        [0.5122, -0.161, 0.03, "R"],
-        [0.5376, -0.161, 0.03, "R"],
-        [0.563, -0.161, 0.03, "R"],
-        [0.5884, -0.161, 0.03, "R"],
-        [0.6138, -0.161, 0.03, "R"],
+        [0.436, -0.161, 0.03, "B"],
         [0.436, -0.1356, 0.03, "G"],
-        [0.4614, -0.1356, 0.03, "G"],
-        [0.4868, -0.1356, 0.03, "G"],
+        [0.436, -0.1102, 0.03, "G"],
+        [0.436, -0.0594, 0.03, "G"],
+        [0.436, -0.034, 0.03, "G"],
+        [0.436, -0.0086, 0.03, "B"],
+        [0.436, 0.0168, 0.03, "G"],
+        [0.4614, -0.161, 0.03, "G"],
+        [0.4614, -0.1356, 0.03, "K"],
+        [0.4614, -0.1102, 0.03, "K"],
+        [0.4614, -0.0594, 0.03, "G"],
+        [0.4614, -0.034, 0.03, "K"],
+        [0.4614, -0.0086, 0.03, "K"],
+        [0.4614, 0.0168, 0.03, "G"],
+        [0.4868, -0.161, 0.03, "G"],
+        [0.4868, -0.1356, 0.03, "K"],
+        [0.4868, -0.1102, 0.03, "K"],
+        [0.4868, -0.0848, 0.03, "G"],
+        [0.4868, -0.0594, 0.03, "G"],
+        [0.4868, -0.034, 0.03, "K"],
+        [0.4868, -0.0086, 0.03, "K"],
+        [0.4868, 0.0168, 0.03, "G"],
         [0.5122, -0.1356, 0.03, "G"],
+        [0.5122, -0.1102, 0.03, "G"],
+        [0.5122, -0.0848, 0.03, "K"],
+        [0.5122, -0.0594, 0.03, "K"],
+        [0.5122, -0.034, 0.03, "G"],
+        [0.5122, -0.0086, 0.03, "G"],
+        [0.5376, -0.161, 0.03, "G"],
         [0.5376, -0.1356, 0.03, "G"],
+        [0.5376, -0.1102, 0.03, "K"],
+        [0.5376, -0.0848, 0.03, "K"],
+        [0.5376, -0.0594, 0.03, "K"],
+        [0.5376, -0.034, 0.03, "K"],
+        [0.5376, -0.0086, 0.03, "G"],
+        [0.5376, 0.0168, 0.03, "G"],
         [0.563, -0.1356, 0.03, "G"],
+        [0.563, -0.1102, 0.03, "K"],
+        [0.563, -0.0848, 0.03, "K"],
+        [0.563, -0.0594, 0.03, "K"],
+        [0.563, -0.034, 0.03, "K"],
+        [0.563, -0.0086, 0.03, "G"],
+        [0.563, 0.0168, 0.03, "G"],
+        [0.5884, -0.161, 0.03, "G"],
         [0.5884, -0.1356, 0.03, "G"],
+        [0.5884, -0.1102, 0.03, "K"],
+        [0.5884, -0.0848, 0.03, "G"],
+        [0.5884, -0.0594, 0.03, "G"],
+        [0.5884, -0.034, 0.03, "K"],
+        [0.5884, 0.0168, 0.03, "G"],
+        [0.6138, -0.161, 0.03, "G"],
         [0.6138, -0.1356, 0.03, "G"],
-        [0.436, -0.1102, 0.03, "B"],
-        [0.4614, -0.1102, 0.03, "B"],
-        [0.4868, -0.1102, 0.03, "B"],
-        [0.5122, -0.1102, 0.03, "B"],
-        [0.5376, -0.1102, 0.03, "B"],
-        [0.563, -0.1102, 0.03, "B"],
-        [0.5884, -0.1102, 0.03, "B"],
-        [0.6138, -0.1102, 0.03, "B"],
+        [0.6138, -0.0848, 0.03, "G"],
+        [0.6138, -0.034, 0.03, "G"],
+        [0.6138, -0.0086, 0.03, "G"],
+        [0.6138, 0.0168, 0.03, "G"],
     ]
 
 

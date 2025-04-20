@@ -18,10 +18,10 @@ def to_homogeneous_matrix(x, y, z):
 def create_stamp_pose_message():
     # Dummy positions for 4 color stamps
     stamp_positions = {
-        "R": [0.579, -0.295, 0.012],
-        "G": [0.382, -0.290, 0.012],
-        "B": [0.444, -0.290, 0.012],
-        "K": [0.506, -0.290, 0.012],
+        "R": [0.583, -0.295, 0.012],
+        "G": [0.506, -0.295, 0.012],
+        "B": [0.444, -0.295, 0.012],
+        "K": [0.382, -0.295, 0.012],
     }
 
     float_array = []
@@ -39,11 +39,18 @@ def create_stamp_pose_message():
 def create_pad_pose_message():
 
     # Dummy positions for 4 color pads
+    # pad_positions = {
+    #     "R": [0.5, 0.2, 0.03],
+    #     "G": [0.5, 0.35, 0.03],
+    #     "B": [0.6, 0.35, 0.03],
+    #     "K": [0.6, 0.2, 0.03],
+    # }
+
     pad_positions = {
-        "R": [0.5, 0.2, 0.03],
-        "G": [0.5, 0.35, 0.03],
-        "B": [0.6, 0.35, 0.03],
-        "K": [0.6, 0.2, 0.03],
+        "R": [0.56, 0.12, 0.04],
+        "G": [0.49, 0.12, 0.04],
+        "B": [0.49, 0.26, 0.04],
+        "K": [0.56, 0.26, 0.04],
     }
 
     float_array = []
