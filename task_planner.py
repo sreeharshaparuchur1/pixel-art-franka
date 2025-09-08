@@ -10,13 +10,8 @@ from frankapy import FrankaArm
 from autolab_core import RigidTransform
 from time import time, sleep
 import pdb
-
-## The first test is to go to the predefined POSE
-# from there give the joint angle waypoint
-# back to a pose
-# go to another "ready" pose
-# give the new joint angle waypoint
-
+from robot_constants import RobotConstants, ColorConstants
+from visualization import plot_pixel_path
 
 class SimpleColorPlanner:
     def __init__(self, home_pose, pixel_goals):
@@ -24,7 +19,7 @@ class SimpleColorPlanner:
         self.pads = {}
         self.stamps = {}
         self.pixel_goals = pixel_goals
-        self.color_order = sort_colors(self.home, self.pads)
+        self.color_order = ColorConstants.DEFAULT_COLOR_ORDER
         self.current_color_idx = 0
 
         self.fa = FrankaArm()
@@ -37,7 +32,6 @@ class SimpleColorPlanner:
     def pad_pose_callback(self, msg):
 
         # message containing the poses and colors of the pads.
-
         data = msg.data
         colors = ["R", "G", "B", "K"]
         for i in range(4):
@@ -49,7 +43,6 @@ class SimpleColorPlanner:
     def stamp_pose_callback(self, msg):
 
         # message containing the poses and colors of the stamps.
-
         data = msg.data
         colors = ["R", "G", "B", "K"]
         for i in range(4):
@@ -62,10 +55,10 @@ class SimpleColorPlanner:
     def move_to_pad(self, color):
         pad_pose = self.pads[color]
         approach_pose = np.array(pad_pose).copy()
-        approach_pose[2, 3] += 0.02
+        approach_pose[2, 3] += RobotConstants.PAD_APPROACH_HEIGHT
 
         approach_pose = RigidTransform(
-            rotation=np.array([[1, 0, 0], [0, -1, 0], [0, 0, -1]]),
+            rotation=RobotConstants.STANDARD_ROTATION,
             translation=approach_pose[:-1, -1],
             from_frame="franka_tool",
             to_frame="world",
@@ -73,9 +66,9 @@ class SimpleColorPlanner:
 
         self.fa.goto_pose(
             tool_pose=approach_pose,
-            duration=10.0,
+            duration=RobotConstants.SLOW_MOVEMENT_DURATION,
             use_impedance=False,  # Setting to True jitters
-            cartesian_impedances=[2000, 2000, 1000, 100, 100, 100],
+            cartesian_impedances=RobotConstants.DEFAULT_IMPEDANCES,
         )
 
         self.stamp(pad=True)
@@ -88,10 +81,10 @@ class SimpleColorPlanner:
 
         stamp_pose = self.stamps[color]
         approach_pose = np.array(stamp_pose).copy()
-        approach_pose[2, 3] += 0.01
+        approach_pose[2, 3] += RobotConstants.STAMP_APPROACH_HEIGHT
 
         approach_pose = RigidTransform(
-            rotation=np.array([[1, 0, 0], [0, -1, 0], [0, 0, -1]]),
+            rotation=RobotConstants.STANDARD_ROTATION,
             translation=approach_pose[:-1, -1],
             from_frame="franka_tool",
             to_frame="world",
@@ -99,12 +92,12 @@ class SimpleColorPlanner:
 
         self.fa.goto_pose(
             tool_pose=approach_pose,
-            duration=10.0,
+            duration=RobotConstants.SLOW_MOVEMENT_DURATION,
             use_impedance=False,
-            cartesian_impedances=[2000, 2000, 1000, 100, 100, 100],
+            cartesian_impedances=RobotConstants.DEFAULT_IMPEDANCES,
         )
 
-        self.fa.goto_gripper(0.01)  # close gripper to hold the stamp
+        self.fa.goto_gripper(RobotConstants.GRIPPER_CLOSED)  # close gripper to hold the stamp
 
         # final_pose = self.fa.get_pose()
         # if np.linalg.norm(final_pose.translation - approach_pose.translation) < 0.005:
@@ -116,10 +109,10 @@ class SimpleColorPlanner:
 
         # Retract after picking up stamp
         retract_pose = np.array(stamp_pose).copy()
-        retract_pose[2, 3] += 0.05  # Retract 5 cm
+        retract_pose[2, 3] += RobotConstants.RETRACT_HEIGHT
 
         retract_pose = RigidTransform(
-            rotation=np.array([[1, 0, 0], [0, -1, 0], [0, 0, -1]]),
+            rotation=RobotConstants.STANDARD_ROTATION,
             translation=retract_pose[:-1, -1],
             from_frame="franka_tool",
             to_frame="world",
@@ -127,9 +120,9 @@ class SimpleColorPlanner:
 
         self.fa.goto_pose(
             tool_pose=retract_pose,
-            duration=5.0,
+            duration=RobotConstants.FAST_MOVEMENT_DURATION,
             use_impedance=True,
-            cartesian_impedances=[2000, 2000, 1000, 100, 100, 100],
+            cartesian_impedances=RobotConstants.DEFAULT_IMPEDANCES,
         )
 
     def return_to_stamp(self, color):
@@ -221,7 +214,6 @@ class SimpleColorPlanner:
 
             desired_pose = current_pose.copy()
             desired_pose.translation -= np.array([0.0, 0.0, 0.05])  # Move down 5 cm
-            # print(desired_pose)
 
             self.fa.goto_pose(
                 tool_pose=desired_pose,
@@ -252,9 +244,6 @@ class SimpleColorPlanner:
 
     def done(self):
         print("All pixels stamped.")
-
-    # Returns order of pixel
-    # white and orange colour?
 
     def travelling_salesman(self, start_position, pixels):
         G = nx.Graph()
@@ -306,7 +295,7 @@ class SimpleColorPlanner:
 
                 stamp_counter += 1
 
-                if stamp_counter % 3 == 0 and stamp_counter != len(ordered_pixels):
+                if stamp_counter % RobotConstants.REDAB_FREQUENCY == 0 and stamp_counter != len(ordered_pixels):
                     print(f"Re-dabbing stamp for {color} after {stamp_counter} pixels.")
                     self.move_to_pad(color)
 
@@ -324,17 +313,6 @@ class SimpleColorPlanner:
         self.done()
 
 
-# implement home distance logic
-def sort_colors(home_pose, pad_poses):
-    return ["R", "B", "G", "K"]
-
-
-# Bhaswanth Code
-def get_stamp_pad_positions_from_aruco():
-    return {"R": [0.4, -0.2, 0.03], "G": [0.6, -0.25, 0.03], "B": [0.5, -0.1, 0.03]}
-
-
-# Harsha Code
 def load_pixel_goals_from_image(image):
     # manually defined
 
@@ -417,59 +395,3 @@ def load_pixel_goals_from_image(image):
     ]
 
 
-def plot_pixel_path(pixel_list, pad_position=None, title="Pixel Path"):
-    if not pixel_list:
-        print("Empty pixel list.")
-        return
-
-    print("Plotting pixel path.....")
-
-    xs = [p[0] for p in pixel_list]
-    ys = [p[1] for p in pixel_list]
-    colors = [p[3] for p in pixel_list]
-
-    plt.figure(figsize=(8, 6))
-
-    plt.plot(xs, ys, "-k", linewidth=1, label="TSP path")
-
-    for x, y, c in zip(xs, ys, colors):
-        plt.plot(x, y, "o", color="red", markersize=6)
-        plt.text(x + 0.002, y + 0.002, c, fontsize=8)
-
-    if pad_position is not None:
-        px, py, _ = pad_position
-        plt.plot(px, py, "s", color="blue", markersize=10, label="Stamp Pad")
-        plt.text(px + 0.002, py + 0.002, "Pad", fontsize=9, color="blue")
-
-    plt.title(title)
-    plt.xlabel("X [m]")
-    plt.ylabel("Y [m]")
-    plt.axis("equal")
-    plt.grid(True)
-    plt.legend()
-    plt.tight_layout()
-
-    plt.savefig("pixel_path_plot.png", dpi=300)
-    plt.close()
-    print("Plot saved as 'pixel_path_plot.png'")
-
-
-def main():
-    home_pose = np.array(
-        [[1, 0, 0, 0.5], [0, 1, 0, 0.0], [0, 0, 1, 0.4], [0, 0, 0, 1.0]]
-    )
-    # pad_poses = get_stamp_pad_positions_from_aruco()
-    pixel_goals = load_pixel_goals_from_image("pixel_art.png")
-    planner = SimpleColorPlanner(home_pose, pixel_goals)
-
-    rospy.loginfo("Waiting for pad poses...")
-    while not rospy.is_shutdown() and len(planner.pads) < 4:
-        rospy.sleep(0.1)
-
-    rospy.loginfo("All pad poses received. Starting run...")
-
-    planner.run()
-
-
-if __name__ == "__main__":
-    main()
