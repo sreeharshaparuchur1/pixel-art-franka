@@ -1,5 +1,5 @@
 # Pixel Art Robot - Team CopyPasta
-<img src="images/Franka-Setup.png" alt="Franka Setup" style="max-width: 400px; width: 100%; height: auto;" />
+<img src="images/Franka-Setup.png" alt="Franka Setup" style="max-width: 100px; width: 100%; height: auto;" />
 
 A robotic system that creates pixel art using a Franka Panda robot arm with colored stamps. The robot autonomously picks up colored stamps, dabs them on ink pads, and stamps pixels on a canvas to recreate digital images in the physical world.
 
