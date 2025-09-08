@@ -254,6 +254,8 @@ class SimpleColorPlanner:
         print("All pixels stamped.")
 
     # Returns order of pixel
+    # white and orange colour?
+
     def travelling_salesman(self, start_position, pixels):
         G = nx.Graph()
         points = [(p[0], p[1], p[2]) for p in pixels]
